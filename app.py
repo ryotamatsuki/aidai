@@ -10,31 +10,16 @@ import re
 from rapidfuzz import fuzz
 import matplotlib.pyplot as plt
 
-# Streamlit SecretsからAPIキーを取得
-try:
-    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
-except Exception as ex:
-    st.error("APIキーが設定されていません。secrets.tomlを確認してください。")
-    GOOGLE_API_KEY = None
-
-if GOOGLE_API_KEY:
-    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
-
-# 最新のGoogle Generative AI APIをインポート
-try:
-    import google.generativeai as genai
-except ImportError:
-    genai = None
-
-# APIキーがある場合、Gemini APIを初期化
-if genai and GOOGLE_API_KEY:
-    genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-
-# Geminiモデルの指定（最新のSDKの形式に合わせる）
-gemini_model = "gemini-2.0-flash"  # モデル名のプレフィックスを削除
-
 def main():
     st.title('食事データダッシュボード')
+
+    # カウントダウン表示（5秒間）
+    status_area = st.empty()
+    count_down_sec = 5
+    for i in range(count_down_sec):
+        status_area.write(f'{count_down_sec - i} sec left')
+        time.sleep(1)
+    status_area.write('Loading Dashboard...')
 
     # ---------------------
     # CSVデータの読み込み（URLを統一）
@@ -62,13 +47,11 @@ def main():
     ])
 
     # ---------------------
-    # タブ1: 生データの表示（Geminiチャット部分は削除）
+    # タブ1: 生データの表示（Gemini Chat部分を削除）
     # ---------------------
     with tab1:
         st.subheader("食事データの内容 (Raw Data)")
         st.dataframe(df_nonzero)
-        st.write("### Data Chat (Gemini API)")
-        st.info("Geminiチャット機能は現在無効化されています。")
 
     # ---------------------
     # タブ2: ファジーマッチング＋カロリー内訳
@@ -189,6 +172,7 @@ def main():
     with tab5:
         st.subheader("Meal Action Total Time (Stacked Bar Chart: Eat on Top)")
         behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/mealbehavior_datai.csv'
+        
         try:
             df_behavior = pd.read_csv(behavior_csv)
             df_behavior['meal_timing'] = pd.to_datetime(
@@ -309,8 +293,6 @@ def main():
                     st.pyplot(fig)
         except Exception as e:
             st.error(f"ステッププロット作成中にエラーが発生しました: {e}")
-
-    st.balloons()
 
 if __name__ == '__main__':
     main()
