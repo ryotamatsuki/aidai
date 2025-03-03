@@ -1,4 +1,3 @@
-%%writefile app.py
 from dotenv import load_dotenv
 load_dotenv()  # カレントディレクトリの.envファイルから環境変数をロード
 
