@@ -90,10 +90,10 @@ def main():
                             "\n\nMeal Behavior Data:\n" + df_meal_behavior.to_csv(index=False)
                         )
                         combined_message = f"{context_text}\n\n質問: {user_question}"
-                        
-                        # 新SDKの仕様に合わせ、palm.chat()を呼び出す
+
+                        # 変更後：
                         response = palm.chat(
-                            model=gemini_model,
+                            model="models/gemini-2.0-flash-exp",  # 直接文字列で指定
                             messages=[{"role": "user", "content": combined_message}]
                         )
                         
