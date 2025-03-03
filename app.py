@@ -41,7 +41,7 @@ def main():
         st.warning("google-generativeai ライブラリがインストールされていないため、Gemini チャット機能は利用できません。")
 
     # Geminiモデルの指定
-    gemini_model = "gemini-2.0-flash-exp"
+    gemini_model = "gemini-2.0-flash"
 
     # ---------------------
     # CSVデータの読み込み
