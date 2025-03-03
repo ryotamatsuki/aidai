@@ -31,7 +31,7 @@ if genai and GOOGLE_API_KEY:
     genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
 # Geminiモデルの指定（最新のSDKの形式に合わせる）
-gemini_model = "gemini-2.0-flash-exp"  # モデル名のプレフィックスを削除
+gemini_model = "gemini-2.0-flash"  # モデル名のプレフィックスを削除
 
 def main():
     st.title('食事データダッシュボード')
