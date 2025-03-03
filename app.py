@@ -10,25 +10,6 @@ import re
 from rapidfuzz import fuzz
 import matplotlib.pyplot as plt
 
-# 環境変数からAPIキーを取得し、存在しない場合はエラー表示
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-if not GOOGLE_API_KEY:
-    st.error("APIキーが設定されていません。環境変数（.envファイル等）を確認してください。")
-else:
-    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
-
-# google-generativeai ライブラリをインポート
-try:
-    import google.generativeai as palm
-except ImportError:
-    palm = None
-
-if palm:
-    palm.configure(api_key=os.environ["GOOGLE_API_KEY"])
-
-# Geminiモデルの指定（公式ドキュメントに従って適宜修正）
-gemini_model = "models/gemini-2.0-flash-exp"
-
 def main():
     st.title('食事データダッシュボード')
 
@@ -51,7 +32,7 @@ def main():
         "Meal Action Step Plots by Meal Timing"
     ])
 
-    # タブ1: 生データの表示 + Gemini Chat
+    # タブ1: 生データの表示
     with tab1:
         st.subheader("食事データの内容 (Raw Data)")
         meal_details_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/meal_details.csv'
@@ -62,33 +43,6 @@ def main():
         df_meal_behavior = pd.read_csv(meal_behavior_csv)
 
         st.dataframe(df_nonzero)
-
-        st.write("### Data Chat (Gemini API)")
-        if not palm:
-            st.warning("Gemini API を利用できません。")
-        else:
-            user_question = st.text_area("データに関する質問を入力してください。")
-            if st.button("送信", key="gemini_send"):
-                if user_question.strip():
-                    try:
-                        context_text = (
-                            "Meal Details Data:\n" + df.to_csv(index=False) +
-                            "\n\nMeal Behavior Data:\n" + df_meal_behavior.to_csv(index=False)
-                        )
-                        combined_message = f"{context_text}\n\n質問: {user_question}"
-                        response = palm.chat(
-                            model=gemini_model,
-                            messages=[{"role": "user", "content": combined_message}],
-                        )
-                        if response and "message" in response and "content" in response["message"]:
-                            st.write("#### 回答:")
-                            st.write(response["message"]["content"])
-                        else:
-                            st.write("Gemini API からのレスポンスがありませんでした。")
-                    except Exception as e:
-                        st.error(f"API呼び出しでエラーが発生しました: {e}")
-                else:
-                    st.info("質問を入力してください。")
 
     # タブ2: ファジーマッチング＋カロリー内訳
     with tab2:
@@ -200,7 +154,6 @@ def main():
     # タブ5: Meal Behavior Stacked Bar Chart (Matplotlib)
     with tab5:
         st.subheader("Meal Action Total Time (Stacked Bar Chart: Eat on Top)")
-        # タブ1と同じ正しいURLに修正
         behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
         df_behavior = pd.read_csv(behavior_csv)
 
