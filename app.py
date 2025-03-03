@@ -11,7 +11,7 @@ from rapidfuzz import fuzz
 import matplotlib.pyplot as plt
 
 # 環境変数からAPIキーを取得し、存在しない場合はエラー表示
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
 if not GOOGLE_API_KEY:
     st.error("APIキーが設定されていません。環境変数（.envファイル等）を確認してください。")
 else:
