@@ -36,8 +36,6 @@ gemini_model = "gemini-2.0-flash"  # モデル名のプレフィックスを削�
 def main():
     st.title('食事データダッシュボード')
 
-   
-
     # ---------------------
     # CSVデータの読み込み（URLを統一）
     # ---------------------
@@ -64,13 +62,14 @@ def main():
     ])
 
     # ---------------------
-    # タブ1: 生データの表示 + Gemini Chat (両CSV全体をRAGとして利用)
+    # タブ1: 生データの表示（Geminiチャット部分は削除）
     # ---------------------
     with tab1:
-    st.subheader("食事データの内容 (Raw Data)")
-    st.dataframe(df_nonzero)
-    
-       
+        st.subheader("食事データの内容 (Raw Data)")
+        st.dataframe(df_nonzero)
+        st.write("### Data Chat (Gemini API)")
+        st.info("Geminiチャット機能は現在無効化されています。")
+
     # ---------------------
     # タブ2: ファジーマッチング＋カロリー内訳
     # ---------------------
@@ -142,7 +141,6 @@ def main():
         else:
             st.write("CSVに 'timestamp', 'dish_group', 'calories (kcal)' のカラムが不足しています。")
 
-    # 以下、タブ3～6のコードは変更なし...    
     # ---------------------
     # タブ3: timestamp ごとの栄養素合計（テーブル表示）
     # ---------------------
@@ -190,10 +188,7 @@ def main():
     # ---------------------
     with tab5:
         st.subheader("Meal Action Total Time (Stacked Bar Chart: Eat on Top)")
-        # この部分に問題があります - URLを修正
         behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/mealbehavior_datai.csv'
-        # 修正: 誤った URL を正しいものに変更
-        
         try:
             df_behavior = pd.read_csv(behavior_csv)
             df_behavior['meal_timing'] = pd.to_datetime(
@@ -315,7 +310,7 @@ def main():
         except Exception as e:
             st.error(f"ステッププロット作成中にエラーが発生しました: {e}")
 
-   
+    st.balloons()
 
 if __name__ == '__main__':
     main()
