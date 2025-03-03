@@ -80,9 +80,8 @@ def main():
         if not palm:
             st.warning("Gemini API を利用できません。")
         else:
-            # 新しいSDKの利用のため、クライアントを生成
-            from google import genai
-            client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+            # 既に「palm」としてライブラリをインポートしているので、その Client を利用する
+            client = palm.Client(api_key=os.environ["GOOGLE_API_KEY"])
             user_question = st.text_area("データに関する質問を入力してください。")
             if st.button("送信", key="gemini_send"):
                 if user_question.strip():
