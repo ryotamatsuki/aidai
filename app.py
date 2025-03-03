@@ -48,13 +48,13 @@ def main():
     # CSVデータの読み込み
     # ---------------------
     # ※ 以下の URL は、GitHub にアップロードした CSV ファイルの Raw URL に置き換えてください。
-    meal_details_csv = 'https://raw.githubusercontent.com/yourusername/yourrepo/main/path/to/meal_details.csv'
+    meal_details_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/meal_details.csv'
     df = pd.read_csv(meal_details_csv)
     # タブ1～4ではカロリーが0の行を除去
     df_nonzero = df[df['calories (kcal)'] != 0].copy()
 
     # Meal Behavior CSVも読み込む（全内容をRAGのコンテキストとして利用）
-    meal_behavior_csv = 'https://raw.githubusercontent.com/yourusername/yourrepo/main/path/to/imealbehavior_datai.csv'
+    meal_behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
     df_meal_behavior = pd.read_csv(meal_behavior_csv)
 
     # ---------------------
