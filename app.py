@@ -36,13 +36,7 @@ gemini_model = "gemini-2.0-flash"  # モデル名のプレフィックスを削�
 def main():
     st.title('食事データダッシュボード')
 
-    # カウントダウン表示（5秒間）
-    status_area = st.empty()
-    count_down_sec = 5
-    for i in range(count_down_sec):
-        status_area.write(f'{count_down_sec - i} sec left')
-        time.sleep(1)
-    status_area.write('Loading Dashboard...')
+   
 
     # ---------------------
     # CSVデータの読み込み（URLを統一）
@@ -75,79 +69,7 @@ def main():
     with tab1:
     st.subheader("食事データの内容 (Raw Data)")
     st.dataframe(df_nonzero)
-    st.write("### Data Chat (Gemini API)")
-    if not genai:
-        st.warning("Gemini API を利用できません。")
-    else:
-        try:
-            # APIが使用可能かを明示的に確認
-            genai.get_model(gemini_model)  # モデルの存在確認
-            st.success("Gemini API 接続確認済み")
-        except Exception as e:
-            st.warning(f"Gemini API 接続エラー: {e}")
-            
-        user_question = st.text_area("データに関する質問を入力してください。")
-        if st.button("送信", key="gemini_send"):
-            if user_question.strip():
-                try:
-                    # データ量を制限（例: 最初の100行のみ）
-                    df_sample = df.head(100)
-                    df_meal_behavior_sample = df_meal_behavior.head(100)
-                    
-                    context_text = (
-                        "Meal Details Data (sample):\n" + df_sample.to_csv(index=False) +
-                        "\n\nMeal Behavior Data (sample):\n" + df_meal_behavior_sample.to_csv(index=False)
-                    )
-                    
-                    # リクエスト全体のデバッグ表示（オプション）
-                    # st.write("送信データサイズ:", len(context_text), "文字")
-                    
-                    combined_message = f"{context_text}\n\n質問: {user_question}"
-                    
-                    # 最新のGemini API呼び出し方法
-                    model = genai.GenerativeModel(gemini_model)
-                    
-                    # 安全モードを無効化（コンテンツフィルタリングによるブロックを回避）
-                    generation_config = {
-                        "temperature": 0.7,
-                        "top_p": 0.95,
-                        "top_k": 40,
-                    }
-                    
-                    # APIリクエストを送信（詳細なオプション付き）
-                    response = model.generate_content(
-                        combined_message,
-                        generation_config=generation_config,
-                        safety_settings=[
-                            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"}
-                        ]
-                    )
-                    
-                    # レスポンス処理の改善
-                    if response:
-                        if hasattr(response, 'text'):
-                            st.write("#### 回答:")
-                            st.write(response.text)
-                        elif hasattr(response, 'parts'):
-                            st.write("#### 回答 (parts):")
-                            for part in response.parts:
-                                st.write(part.text)
-                        else:
-                            st.write("#### レスポンス構造:")
-                            st.write(str(response))
-                            st.write("#### 注意: APIからのレスポンス形式が予期しないものでした。")
-                    else:
-                        st.write("Gemini API からのレスポンスがありませんでした。")
-                        
-                except Exception as e:
-                    import traceback
-                    st.error(f"API呼び出しでエラーが発生しました: {e}")
-                    st.error(traceback.format_exc())  # スタックトレースを表示
-            else:
-                st.info("質問を入力してください。")
+    
        
     # ---------------------
     # タブ2: ファジーマッチング＋カロリー内訳
