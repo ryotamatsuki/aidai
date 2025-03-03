@@ -315,7 +315,7 @@ def main():
         except Exception as e:
             st.error(f"ステッププロット作成中にエラーが発生しました: {e}")
 
-    st.balloons()
+   
 
 if __name__ == '__main__':
     main()
