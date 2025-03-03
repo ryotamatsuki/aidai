@@ -10,14 +10,11 @@ import re
 from rapidfuzz import fuzz
 import matplotlib.pyplot as plt
 
-# Streamlit SecretsからAPIキーを取得
-try:
-    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
-except Exception as ex:
-    st.error("APIキーが設定されていません。secrets.tomlを確認してください。")
-    GOOGLE_API_KEY = None
-
-if GOOGLE_API_KEY:
+# 環境変数からAPIキーを取得し、存在しない場合はエラー表示
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+if not GOOGLE_API_KEY:
+    st.error("APIキーが設定されていません。環境変数（.envファイル等）を確認してください。")
+else:
     os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
 # google-generativeai ライブラリをインポート
@@ -26,11 +23,10 @@ try:
 except ImportError:
     palm = None
 
-# APIキーがある場合、Gemini APIを初期化
-if palm and GOOGLE_API_KEY:
+if palm:
     palm.configure(api_key=os.environ["GOOGLE_API_KEY"])
 
-# Geminiモデルの指定（モデル名は "models/" で始める必要がある）
+# Geminiモデルの指定（公式ドキュメントに従って適宜修正）
 gemini_model = "models/gemini-2.0-flash-exp"
 
 def main():
@@ -44,21 +40,7 @@ def main():
         time.sleep(1)
     status_area.write('Loading Dashboard...')
 
-    # ---------------------
-    # CSVデータの読み込み（URLを統一）
-    # ---------------------
-    meal_details_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/meal_details.csv'
-    df = pd.read_csv(meal_details_csv)
-    # カロリーが0の行を除去
-    df_nonzero = df[df['calories (kcal)'] != 0].copy()
-
-    # ※ファイル名に誤りがないか確認してください（404エラー対策）
-    meal_behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/mealbehavior_datai.csv'
-    df_meal_behavior = pd.read_csv(meal_behavior_csv)
-
-    # ---------------------
-    # タブの作成（7つ）
-    # ---------------------
+    # タブの作成
     tab1, tab2, tab3, tab4, tab5, tab5_5, tab6 = st.tabs([
         "Raw Data",
         "Calorie Distribution",
@@ -69,11 +51,16 @@ def main():
         "Meal Action Step Plots by Meal Timing"
     ])
 
-    # ---------------------
-    # タブ1: 生データの表示 + Gemini Chat (両CSV全体をRAGとして利用)
-    # ---------------------
+    # タブ1: 生データの表示 + Gemini Chat
     with tab1:
         st.subheader("食事データの内容 (Raw Data)")
+        meal_details_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/meal_details.csv'
+        df = pd.read_csv(meal_details_csv)
+        df_nonzero = df[df['calories (kcal)'] != 0].copy()
+
+        meal_behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
+        df_meal_behavior = pd.read_csv(meal_behavior_csv)
+
         st.dataframe(df_nonzero)
 
         st.write("### Data Chat (Gemini API)")
@@ -84,20 +71,15 @@ def main():
             if st.button("送信", key="gemini_send"):
                 if user_question.strip():
                     try:
-                        # 両CSV全体をコンテキストとして渡す
                         context_text = (
                             "Meal Details Data:\n" + df.to_csv(index=False) +
                             "\n\nMeal Behavior Data:\n" + df_meal_behavior.to_csv(index=False)
                         )
                         combined_message = f"{context_text}\n\n質問: {user_question}"
-
-                        # 変更後：
                         response = palm.chat(
-                            model="models/gemini-2.0-flash-exp",  # 直接文字列で指定
-                            messages=[{"role": "user", "content": combined_message}]
+                            model=gemini_model,
+                            messages=[{"role": "user", "content": combined_message}],
                         )
-                        
-                        # レスポンスは辞書形式で返されるので、回答テキストを抽出
                         if response and "message" in response and "content" in response["message"]:
                             st.write("#### 回答:")
                             st.write(response["message"]["content"])
@@ -108,9 +90,7 @@ def main():
                 else:
                     st.info("質問を入力してください。")
 
-    # ---------------------
     # タブ2: ファジーマッチング＋カロリー内訳
-    # ---------------------
     with tab2:
         st.subheader('タイムスタンプごとの Dish別 カロリー内訳')
 
@@ -179,9 +159,7 @@ def main():
         else:
             st.write("CSVに 'timestamp', 'dish_group', 'calories (kcal)' のカラムが不足しています。")
 
-    # ---------------------
     # タブ3: timestamp ごとの栄養素合計（テーブル表示）
-    # ---------------------
     with tab3:
         required_cols = ['timestamp', 'calories (kcal)', 'fat (g)', 'carbohydrates (g)', 'protein (g)']
         if set(required_cols).issubset(df_nonzero.columns):
@@ -192,9 +170,7 @@ def main():
         else:
             st.write("必要なカラム（timestamp, calories (kcal), fat (g), carbohydrates (g), protein (g)）が存在しません。")
 
-    # ---------------------
     # タブ4: 各栄養素の時系列推移（折れ線グラフのみ）
-    # ---------------------
     with tab4:
         st.subheader("栄養素の時系列推移（折れ線グラフのみ）")
         if 'timestamp' in df_nonzero.columns:
@@ -221,14 +197,13 @@ def main():
         else:
             st.write("CSVに 'timestamp' カラムがありません。")
 
-    # ---------------------
     # タブ5: Meal Behavior Stacked Bar Chart (Matplotlib)
-    # ---------------------
     with tab5:
         st.subheader("Meal Action Total Time (Stacked Bar Chart: Eat on Top)")
+        # タブ1と同じ正しいURLに修正
         behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
-        # ※ CSVファイルのURLが404エラーの場合、正しいファイル名（例："mealbehavior_datai.csv"）に修正してください。
         df_behavior = pd.read_csv(behavior_csv)
+
         df_behavior['meal_timing'] = pd.to_datetime(
             df_behavior['meal_timing'].astype(float) / 1000,
             unit='s',
@@ -236,6 +211,7 @@ def main():
         ).dt.tz_convert('Asia/Tokyo')
         df_behavior['timestamp'] = pd.to_datetime(df_behavior['timestamp'], format="%Y-%m-%d_%H-%M-%S.%f")
         df_behavior = df_behavior.sort_values(['meal_timing', 'timestamp'])
+
         duration_data = []
         for meal_timing, group in df_behavior.groupby('meal_timing'):
             group = group.sort_values('timestamp').copy()
@@ -250,22 +226,27 @@ def main():
             segments['duration'] = segments['next_start'] - segments['start']
             segments.loc[segments['duration'].isna(), 'duration'] = group_end - segments.loc[segments['duration'].isna(), 'start']
             segments['duration_seconds'] = segments['duration'].dt.total_seconds()
+
             for _, row in segments.iterrows():
                 duration_data.append({
                     'meal_timing': meal_timing,
                     'meal_action': row['meal_action'].strip().lower(),
                     'duration': row['duration_seconds']
                 })
+
         df_duration = pd.DataFrame(duration_data)
         df_pivot = df_duration.pivot_table(index='meal_timing', columns='meal_action', values='duration', aggfunc='sum').fillna(0)
         df_pivot.index = pd.to_datetime(df_pivot.index).strftime('%Y-%m-%d %H:%M:%S')
         meal_timings = df_pivot.index.tolist()
+
         fig, ax = plt.subplots(figsize=(8, 6))
         not_eat_durations = df_pivot.get('not eat', pd.Series(0, index=df_pivot.index))
         eat_durations = df_pivot.get('eat', pd.Series(0, index=df_pivot.index))
         total_durations = not_eat_durations + eat_durations
+
         bar_not_eat = ax.bar(meal_timings, not_eat_durations, color="#ff7f0e", label="Not Eat")
         bar_eat = ax.bar(meal_timings, eat_durations, bottom=not_eat_durations, color="#1f77b4", label="Eat")
+
         for i, mt in enumerate(meal_timings):
             tot = total_durations[mt]
             if tot > 0:
@@ -285,20 +266,22 @@ def main():
         plt.tight_layout()
         st.pyplot(fig)
 
-    # ---------------------
-    # タブ5.5: 100%積み上げ棒グラフ（割合表示）の作成
-    # ---------------------
+    # タブ5.5: 100%積み上げ棒グラフ（割合表示）
     with tab5_5:
         st.subheader("Meal Action Percentage by Meal Timing (100% Stacked Bar Chart)")
         not_eat_durations = df_pivot.get('not eat', pd.Series(0, index=df_pivot.index))
         eat_durations = df_pivot.get('eat', pd.Series(0, index=df_pivot.index))
         total_durations = not_eat_durations + eat_durations
+
         not_eat_pct = (not_eat_durations / total_durations * 100).fillna(0)
         eat_pct = (eat_durations / total_durations * 100).fillna(0)
+
         meal_timings = df_pivot.index.tolist()
+
         fig, ax = plt.subplots(figsize=(8, 6))
         bar_not_eat_pct = ax.bar(meal_timings, not_eat_pct, color="#ff7f0e", label="Not Eat")
         bar_eat_pct = ax.bar(meal_timings, eat_pct, bottom=not_eat_pct, color="#1f77b4", label="Eat")
+
         for i, mt in enumerate(meal_timings):
             ne = not_eat_pct[mt]
             e = eat_pct[mt]
@@ -315,16 +298,15 @@ def main():
         plt.tight_layout()
         st.pyplot(fig)
 
-    # ---------------------
     # タブ6: Meal Action Step Plots by Meal Timing
-    # ---------------------
     with tab6:
         st.subheader("Meal Action Step Plots by Meal Timing")
-        behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/mealbehavior_datai.csv'
+        behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
         df_behavior = pd.read_csv(behavior_csv)
         df_behavior['timestamp'] = pd.to_datetime(df_behavior['timestamp'], format="%Y-%m-%d_%H-%M-%S.%f")
         df_behavior['state'] = df_behavior['meal_action'].apply(lambda x: 1 if x.strip().lower() == "eat" else 0)
         df_behavior = df_behavior.sort_values('timestamp')
+
         if 'meal_timing' not in df_behavior.columns:
             st.error("CSVファイルに 'meal_timing' カラムが存在しません。")
         else:
