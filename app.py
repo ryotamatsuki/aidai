@@ -223,7 +223,7 @@ def main():
     # ---------------------
     with tab5:
         st.subheader("Meal Action Total Time (Stacked Bar Chart: Eat on Top)")
-        behavior_csv = 'https://raw.githubusercontent.com/yourusername/yourrepo/main/path/to/imealbehavior_datai.csv'
+        behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
         df_behavior = pd.read_csv(behavior_csv)
         df_behavior['meal_timing'] = pd.to_datetime(
             df_behavior['meal_timing'].astype(float) / 1000,
@@ -317,7 +317,7 @@ def main():
     # ---------------------
     with tab6:
         st.subheader("Meal Action Step Plots by Meal Timing")
-        behavior_csv = 'https://raw.githubusercontent.com/yourusername/yourrepo/main/path/to/imealbehavior_datai.csv'
+        behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
         df_behavior = pd.read_csv(behavior_csv)
         df_behavior['timestamp'] = pd.to_datetime(df_behavior['timestamp'], format="%Y-%m-%d_%H-%M-%S.%f")
         df_behavior['state'] = df_behavior['meal_action'].apply(lambda x: 1 if x.strip().lower() == "eat" else 0)
