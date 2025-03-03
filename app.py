@@ -10,6 +10,29 @@ import re
 from rapidfuzz import fuzz
 import matplotlib.pyplot as plt
 
+# Streamlit SecretsからAPIキーを取得
+try:
+    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+except Exception as ex:
+    st.error("APIキーが設定されていません。secrets.tomlを確認してください。")
+    GOOGLE_API_KEY = None
+
+if GOOGLE_API_KEY:
+    os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
+
+# google-generativeai ライブラリをインポート
+try:
+    import google.generativeai as palm
+except ImportError:
+    palm = None
+
+# APIキーがある場合、Gemini APIを初期化
+if palm and GOOGLE_API_KEY:
+    palm.configure(api_key=os.environ["GOOGLE_API_KEY"])
+
+# Geminiモデルの指定（モデル名は "models/" で始める必要がある）
+gemini_model = "models/gemini-2.0-flash-exp"
+
 def main():
     st.title('食事データダッシュボード')
 
@@ -47,11 +70,43 @@ def main():
     ])
 
     # ---------------------
-    # タブ1: 生データの表示（Gemini Chat部分を削除）
+    # タブ1: 生データの表示 + Gemini Chat (両CSV全体をRAGとして利用)
     # ---------------------
     with tab1:
         st.subheader("食事データの内容 (Raw Data)")
         st.dataframe(df_nonzero)
+
+        st.write("### Data Chat (Gemini API)")
+        if not palm:
+            st.warning("Gemini API を利用できません。")
+        else:
+            user_question = st.text_area("データに関する質問を入力してください。")
+            if st.button("送信", key="gemini_send"):
+                if user_question.strip():
+                    try:
+                        # 両CSV全体をコンテキストとして渡す
+                        context_text = (
+                            "Meal Details Data:\n" + df.to_csv(index=False) +
+                            "\n\nMeal Behavior Data:\n" + df_meal_behavior.to_csv(index=False)
+                        )
+                        combined_message = f"{context_text}\n\n質問: {user_question}"
+
+                        # 変更後：
+                        response = palm.chat(
+                            model="models/gemini-2.0-flash-exp",  # 直接文字列で指定
+                            messages=[{"role": "user", "content": combined_message}]
+                        )
+                        
+                        # レスポンスは辞書形式で返されるので、回答テキストを抽出
+                        if response and "message" in response and "content" in response["message"]:
+                            st.write("#### 回答:")
+                            st.write(response["message"]["content"])
+                        else:
+                            st.write("Gemini API からのレスポンスがありませんでした。")
+                    except Exception as e:
+                        st.error(f"API呼び出しでエラーが発生しました: {e}")
+                else:
+                    st.info("質問を入力してください。")
 
     # ---------------------
     # タブ2: ファジーマッチング＋カロリー内訳
@@ -171,100 +226,94 @@ def main():
     # ---------------------
     with tab5:
         st.subheader("Meal Action Total Time (Stacked Bar Chart: Eat on Top)")
-        behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/mealbehavior_datai.csv'
-        
-        try:
-            df_behavior = pd.read_csv(behavior_csv)
-            df_behavior['meal_timing'] = pd.to_datetime(
-                df_behavior['meal_timing'].astype(float) / 1000,
-                unit='s',
-                utc=True
-            ).dt.tz_convert('Asia/Tokyo')
-            df_behavior['timestamp'] = pd.to_datetime(df_behavior['timestamp'], format="%Y-%m-%d_%H-%M-%S.%f")
-            df_behavior = df_behavior.sort_values(['meal_timing', 'timestamp'])
-            duration_data = []
-            for meal_timing, group in df_behavior.groupby('meal_timing'):
-                group = group.sort_values('timestamp').copy()
-                group_start = group['timestamp'].iloc[0]
-                group_end = group['timestamp'].iloc[-1]
-                group['segment'] = (group['meal_action'] != group['meal_action'].shift()).cumsum()
-                segments = group.groupby('segment').agg(
-                    start=('timestamp', 'first'),
-                    meal_action=('meal_action', 'first')
-                ).reset_index()
-                segments['next_start'] = segments['start'].shift(-1)
-                segments['duration'] = segments['next_start'] - segments['start']
-                segments.loc[segments['duration'].isna(), 'duration'] = group_end - segments.loc[segments['duration'].isna(), 'start']
-                segments['duration_seconds'] = segments['duration'].dt.total_seconds()
-                for _, row in segments.iterrows():
-                    duration_data.append({
-                        'meal_timing': meal_timing,
-                        'meal_action': row['meal_action'].strip().lower(),
-                        'duration': row['duration_seconds']
-                    })
-            df_duration = pd.DataFrame(duration_data)
-            df_pivot = df_duration.pivot_table(index='meal_timing', columns='meal_action', values='duration', aggfunc='sum').fillna(0)
-            df_pivot.index = pd.to_datetime(df_pivot.index).strftime('%Y-%m-%d %H:%M:%S')
-            meal_timings = df_pivot.index.tolist()
-            fig, ax = plt.subplots(figsize=(8, 6))
-            not_eat_durations = df_pivot.get('not eat', pd.Series(0, index=df_pivot.index))
-            eat_durations = df_pivot.get('eat', pd.Series(0, index=df_pivot.index))
-            total_durations = not_eat_durations + eat_durations
-            bar_not_eat = ax.bar(meal_timings, not_eat_durations, color="#ff7f0e", label="Not Eat")
-            bar_eat = ax.bar(meal_timings, eat_durations, bottom=not_eat_durations, color="#1f77b4", label="Eat")
-            for i, mt in enumerate(meal_timings):
-                tot = total_durations[mt]
-                if tot > 0:
-                    not_eat_pct_val = (not_eat_durations[mt] / tot) * 100
-                    eat_pct_val = (eat_durations[mt] / tot) * 100
-                    ax.text(i, not_eat_durations[mt] / 2, f'{not_eat_durations[mt]:.1f} sec\n({not_eat_pct_val:.1f}%)',
-                            ha='center', va='center', color='white', fontsize=10, fontweight='bold')
-                    ax.text(i, not_eat_durations[mt] + eat_durations[mt] / 2, f'{eat_durations[mt]:.1f} sec\n({eat_pct_val:.1f}%)',
-                            ha='center', va='center', color='white', fontsize=10, fontweight='bold')
-                    ax.text(i, tot + tot * 0.05, f'Total: {tot:.1f} sec', ha='center', fontsize=10, fontweight='bold')
-            if total_durations.max() > 0:
-                ax.set_ylim(0, total_durations.max() * 1.25)
-            ax.set_ylabel("Total Duration (seconds)")
-            ax.set_title("Meal Action Duration by Meal Timing (Stacked Bar Chart: Eat on Top)")
-            ax.legend([bar_eat, bar_not_eat], ["Eat", "Not Eat"], loc="upper right")
-            plt.xticks(rotation=45, ha='right')
-            plt.tight_layout()
-            st.pyplot(fig)
-        except Exception as e:
-            st.error(f"データ読み込みまたは処理中にエラーが発生しました: {e}")
+        behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
+        # ※ CSVファイルのURLが404エラーの場合、正しいファイル名（例："mealbehavior_datai.csv"）に修正してください。
+        df_behavior = pd.read_csv(behavior_csv)
+        df_behavior['meal_timing'] = pd.to_datetime(
+            df_behavior['meal_timing'].astype(float) / 1000,
+            unit='s',
+            utc=True
+        ).dt.tz_convert('Asia/Tokyo')
+        df_behavior['timestamp'] = pd.to_datetime(df_behavior['timestamp'], format="%Y-%m-%d_%H-%M-%S.%f")
+        df_behavior = df_behavior.sort_values(['meal_timing', 'timestamp'])
+        duration_data = []
+        for meal_timing, group in df_behavior.groupby('meal_timing'):
+            group = group.sort_values('timestamp').copy()
+            group_start = group['timestamp'].iloc[0]
+            group_end = group['timestamp'].iloc[-1]
+            group['segment'] = (group['meal_action'] != group['meal_action'].shift()).cumsum()
+            segments = group.groupby('segment').agg(
+                start=('timestamp', 'first'),
+                meal_action=('meal_action', 'first')
+            ).reset_index()
+            segments['next_start'] = segments['start'].shift(-1)
+            segments['duration'] = segments['next_start'] - segments['start']
+            segments.loc[segments['duration'].isna(), 'duration'] = group_end - segments.loc[segments['duration'].isna(), 'start']
+            segments['duration_seconds'] = segments['duration'].dt.total_seconds()
+            for _, row in segments.iterrows():
+                duration_data.append({
+                    'meal_timing': meal_timing,
+                    'meal_action': row['meal_action'].strip().lower(),
+                    'duration': row['duration_seconds']
+                })
+        df_duration = pd.DataFrame(duration_data)
+        df_pivot = df_duration.pivot_table(index='meal_timing', columns='meal_action', values='duration', aggfunc='sum').fillna(0)
+        df_pivot.index = pd.to_datetime(df_pivot.index).strftime('%Y-%m-%d %H:%M:%S')
+        meal_timings = df_pivot.index.tolist()
+        fig, ax = plt.subplots(figsize=(8, 6))
+        not_eat_durations = df_pivot.get('not eat', pd.Series(0, index=df_pivot.index))
+        eat_durations = df_pivot.get('eat', pd.Series(0, index=df_pivot.index))
+        total_durations = not_eat_durations + eat_durations
+        bar_not_eat = ax.bar(meal_timings, not_eat_durations, color="#ff7f0e", label="Not Eat")
+        bar_eat = ax.bar(meal_timings, eat_durations, bottom=not_eat_durations, color="#1f77b4", label="Eat")
+        for i, mt in enumerate(meal_timings):
+            tot = total_durations[mt]
+            if tot > 0:
+                not_eat_pct_val = (not_eat_durations[mt] / tot) * 100
+                eat_pct_val = (eat_durations[mt] / tot) * 100
+                ax.text(i, not_eat_durations[mt] / 2, f'{not_eat_durations[mt]:.1f} sec\n({not_eat_pct_val:.1f}%)',
+                        ha='center', va='center', color='white', fontsize=10, fontweight='bold')
+                ax.text(i, not_eat_durations[mt] + eat_durations[mt] / 2, f'{eat_durations[mt]:.1f} sec\n({eat_pct_val:.1f}%)',
+                        ha='center', va='center', color='white', fontsize=10, fontweight='bold')
+                ax.text(i, tot + tot * 0.05, f'Total: {tot:.1f} sec', ha='center', fontsize=10, fontweight='bold')
+        if total_durations.max() > 0:
+            ax.set_ylim(0, total_durations.max() * 1.25)
+        ax.set_ylabel("Total Duration (seconds)")
+        ax.set_title("Meal Action Duration by Meal Timing (Stacked Bar Chart: Eat on Top)")
+        ax.legend([bar_eat, bar_not_eat], ["Eat", "Not Eat"], loc="upper right")
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        st.pyplot(fig)
 
     # ---------------------
     # タブ5.5: 100%積み上げ棒グラフ（割合表示）の作成
     # ---------------------
     with tab5_5:
         st.subheader("Meal Action Percentage by Meal Timing (100% Stacked Bar Chart)")
-        try:
-            not_eat_durations = df_pivot.get('not eat', pd.Series(0, index=df_pivot.index))
-            eat_durations = df_pivot.get('eat', pd.Series(0, index=df_pivot.index))
-            total_durations = not_eat_durations + eat_durations
-            not_eat_pct = (not_eat_durations / total_durations * 100).fillna(0)
-            eat_pct = (eat_durations / total_durations * 100).fillna(0)
-            meal_timings = df_pivot.index.tolist()
-            fig, ax = plt.subplots(figsize=(8, 6))
-            bar_not_eat_pct = ax.bar(meal_timings, not_eat_pct, color="#ff7f0e", label="Not Eat")
-            bar_eat_pct = ax.bar(meal_timings, eat_pct, bottom=not_eat_pct, color="#1f77b4", label="Eat")
-            for i, mt in enumerate(meal_timings):
-                ne = not_eat_pct[mt]
-                e = eat_pct[mt]
-                tot = ne + e
-                if tot > 0:
-                    ax.text(i, ne/2, f'{ne:.1f}%', ha='center', va='center', color='white', fontsize=10, fontweight='bold')
-                    ax.text(i, ne + e/2, f'{e:.1f}%', ha='center', va='center', color='white', fontsize=10, fontweight='bold')
-                    ax.text(i, tot + tot * 0.05, f'Total: 100%', ha='center', fontsize=10, fontweight='bold')
-            ax.set_ylabel("Percentage (%)")
-            ax.set_title("Meal Action Percentage by Meal Timing (100% Stacked Bar Chart)")
-            ax.set_ylim(0, 120)
-            ax.legend([bar_eat_pct, bar_not_eat_pct], ["Eat", "Not Eat"], loc="upper right")
-            plt.xticks(rotation=45, ha='right')
-            plt.tight_layout()
-            st.pyplot(fig)
-        except Exception as e:
-            st.error(f"グラフ作成中にエラーが発生しました: {e}")
+        not_eat_durations = df_pivot.get('not eat', pd.Series(0, index=df_pivot.index))
+        eat_durations = df_pivot.get('eat', pd.Series(0, index=df_pivot.index))
+        total_durations = not_eat_durations + eat_durations
+        not_eat_pct = (not_eat_durations / total_durations * 100).fillna(0)
+        eat_pct = (eat_durations / total_durations * 100).fillna(0)
+        meal_timings = df_pivot.index.tolist()
+        fig, ax = plt.subplots(figsize=(8, 6))
+        bar_not_eat_pct = ax.bar(meal_timings, not_eat_pct, color="#ff7f0e", label="Not Eat")
+        bar_eat_pct = ax.bar(meal_timings, eat_pct, bottom=not_eat_pct, color="#1f77b4", label="Eat")
+        for i, mt in enumerate(meal_timings):
+            ne = not_eat_pct[mt]
+            e = eat_pct[mt]
+            tot = ne + e
+            if tot > 0:
+                ax.text(i, ne/2, f'{ne:.1f}%', ha='center', va='center', color='white', fontsize=10, fontweight='bold')
+                ax.text(i, ne + e/2, f'{e:.1f}%', ha='center', va='center', color='white', fontsize=10, fontweight='bold')
+                ax.text(i, tot + tot * 0.05, f'Total: 100%', ha='center', fontsize=10, fontweight='bold')
+        ax.set_ylabel("Percentage (%)")
+        ax.set_title("Meal Action Percentage by Meal Timing (100% Stacked Bar Chart)")
+        ax.set_ylim(0, 120)
+        ax.legend([bar_eat_pct, bar_not_eat_pct], ["Eat", "Not Eat"], loc="upper right")
+        plt.xticks(rotation=45, ha='right')
+        plt.tight_layout()
+        st.pyplot(fig)
 
     # ---------------------
     # タブ6: Meal Action Step Plots by Meal Timing
@@ -272,27 +321,26 @@ def main():
     with tab6:
         st.subheader("Meal Action Step Plots by Meal Timing")
         behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/mealbehavior_datai.csv'
-        try:
-            df_behavior = pd.read_csv(behavior_csv)
-            df_behavior['timestamp'] = pd.to_datetime(df_behavior['timestamp'], format="%Y-%m-%d_%H-%M-%S.%f")
-            df_behavior['state'] = df_behavior['meal_action'].apply(lambda x: 1 if x.strip().lower() == "eat" else 0)
-            df_behavior = df_behavior.sort_values('timestamp')
-            if 'meal_timing' not in df_behavior.columns:
-                st.error("CSVファイルに 'meal_timing' カラムが存在しません。")
-            else:
-                for meal_timing, group in df_behavior.groupby('meal_timing'):
-                    fig, ax = plt.subplots(figsize=(10, 5))
-                    ax.step(group['timestamp'], group['state'], where='post', label=f"Meal Action - {meal_timing}", linewidth=2)
-                    ax.set_yticks([0, 1])
-                    ax.set_yticklabels(["Not Eat (0)", "Eat (1)"])
-                    ax.set_xlabel("Timestamp")
-                    ax.set_ylabel("Meal State")
-                    ax.set_title(f"Meal Action Step Plot for Meal Timing: {meal_timing}")
-                    ax.grid(True, linestyle="--", alpha=0.5)
-                    ax.legend()
-                    st.pyplot(fig)
-        except Exception as e:
-            st.error(f"ステッププロット作成中にエラーが発生しました: {e}")
+        df_behavior = pd.read_csv(behavior_csv)
+        df_behavior['timestamp'] = pd.to_datetime(df_behavior['timestamp'], format="%Y-%m-%d_%H-%M-%S.%f")
+        df_behavior['state'] = df_behavior['meal_action'].apply(lambda x: 1 if x.strip().lower() == "eat" else 0)
+        df_behavior = df_behavior.sort_values('timestamp')
+        if 'meal_timing' not in df_behavior.columns:
+            st.error("CSVファイルに 'meal_timing' カラムが存在しません。")
+        else:
+            for meal_timing, group in df_behavior.groupby('meal_timing'):
+                fig, ax = plt.subplots(figsize=(10, 5))
+                ax.step(group['timestamp'], group['state'], where='post', label=f"Meal Action - {meal_timing}", linewidth=2)
+                ax.set_yticks([0, 1])
+                ax.set_yticklabels(["Not Eat (0)", "Eat (1)"])
+                ax.set_xlabel("Timestamp")
+                ax.set_ylabel("Meal State")
+                ax.set_title(f"Meal Action Step Plot for Meal Timing: {meal_timing}")
+                ax.grid(True, linestyle="--", alpha=0.5)
+                ax.legend()
+                st.pyplot(fig)
+
+    st.balloons()
 
 if __name__ == '__main__':
     main()
