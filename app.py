@@ -10,11 +10,14 @@ import re
 from rapidfuzz import fuzz
 import matplotlib.pyplot as plt
 
-# 環境変数からAPIキーを取得し、存在しない場合はエラー表示
-GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
-if not GOOGLE_API_KEY:
-    st.error("APIキーが設定されていません。環境変数（.envファイル等）を確認してください。")
-else:
+# Streamlit SecretsからAPIキーを取得
+try:
+    GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"]
+except Exception as ex:
+    st.error("APIキーが設定されていません。secrets.tomlを確認してください。")
+    GOOGLE_API_KEY = None
+
+if GOOGLE_API_KEY:
     os.environ["GOOGLE_API_KEY"] = GOOGLE_API_KEY
 
 # google-generativeai ライブラリをインポート
@@ -22,6 +25,13 @@ try:
     import google.generativeai as palm
 except ImportError:
     palm = None
+
+# APIキーがある場合、Gemini APIを初期化
+if palm and GOOGLE_API_KEY:
+    palm.configure(api_key=os.environ["GOOGLE_API_KEY"])
+
+# Geminiモデルの指定（モデル名は "models/" で始める必要がある）
+gemini_model = "models/gemini-2.0-flash-exp"
 
 def main():
     st.title('食事データダッシュボード')
@@ -34,23 +44,16 @@ def main():
         time.sleep(1)
     status_area.write('Loading Dashboard...')
 
-    # Gemini (Google Generative AI) API キーの設定
-    if palm:
-        palm.configure(api_key=os.environ["GOOGLE_API_KEY"])
-    else:
-        st.warning("google-generativeai ライブラリがインストールされていないため、Gemini チャット機能は利用できません。")
-
-    # Geminiモデルの指定
-    gemini_model = "gemini-2.0-flash"
-
     # ---------------------
-    # CSVデータの読み込み
+    # CSVデータの読み込み（URLを統一）
     # ---------------------
     meal_details_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/meal_details.csv'
     df = pd.read_csv(meal_details_csv)
+    # カロリーが0の行を除去
     df_nonzero = df[df['calories (kcal)'] != 0].copy()
 
-    meal_behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
+    # ※ファイル名に誤りがないか確認してください（404エラー対策）
+    meal_behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/mealbehavior_datai.csv'
     df_meal_behavior = pd.read_csv(meal_behavior_csv)
 
     # ---------------------
@@ -88,15 +91,16 @@ def main():
                         )
                         combined_message = f"{context_text}\n\n質問: {user_question}"
                         
-                        # モジュールレベルの関数としてpalm.chat()を直接呼び出す
+                        # 新SDKの仕様に合わせ、palm.chat()を呼び出す
                         response = palm.chat(
                             model=gemini_model,
                             messages=[{"role": "user", "content": combined_message}]
                         )
                         
-                        if response:
+                        # レスポンスは辞書形式で返されるので、回答テキストを抽出
+                        if response and "message" in response and "content" in response["message"]:
                             st.write("#### 回答:")
-                            st.write(response.text)
+                            st.write(response["message"]["content"])
                         else:
                             st.write("Gemini API からのレスポンスがありませんでした。")
                     except Exception as e:
@@ -105,7 +109,7 @@ def main():
                     st.info("質問を入力してください。")
 
     # ---------------------
-    # タブ2: ファジーマッチング＋カロリー内訳（積み上げ棒グラフ＋総計テキスト付き）
+    # タブ2: ファジーマッチング＋カロリー内訳
     # ---------------------
     with tab2:
         st.subheader('タイムスタンプごとの Dish別 カロリー内訳')
@@ -151,7 +155,6 @@ def main():
         if set(['timestamp', 'dish_group', 'calories (kcal)']).issubset(df_nonzero.columns):
             df_nonzero['timestamp'] = pd.to_datetime(df_nonzero['timestamp'])
             df_nonzero['timestamp_str'] = df_nonzero['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-
             grouped = df_nonzero.groupby(['timestamp_str', 'dish_group'], as_index=False)['calories (kcal)'].sum()
             sum_per_timestamp = grouped.groupby('timestamp_str', as_index=False)['calories (kcal)'].sum()
             st.write("各タイムスタンプの合計カロリー (kcal):")
@@ -224,6 +227,7 @@ def main():
     with tab5:
         st.subheader("Meal Action Total Time (Stacked Bar Chart: Eat on Top)")
         behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
+        # ※ CSVファイルのURLが404エラーの場合、正しいファイル名（例："mealbehavior_datai.csv"）に修正してください。
         df_behavior = pd.read_csv(behavior_csv)
         df_behavior['meal_timing'] = pd.to_datetime(
             df_behavior['meal_timing'].astype(float) / 1000,
@@ -272,9 +276,8 @@ def main():
                 ax.text(i, not_eat_durations[mt] + eat_durations[mt] / 2, f'{eat_durations[mt]:.1f} sec\n({eat_pct_val:.1f}%)',
                         ha='center', va='center', color='white', fontsize=10, fontweight='bold')
                 ax.text(i, tot + tot * 0.05, f'Total: {tot:.1f} sec', ha='center', fontsize=10, fontweight='bold')
-        max_val = total_durations.max()
-        if max_val > 0:
-            ax.set_ylim(0, max_val * 1.25)
+        if total_durations.max() > 0:
+            ax.set_ylim(0, total_durations.max() * 1.25)
         ax.set_ylabel("Total Duration (seconds)")
         ax.set_title("Meal Action Duration by Meal Timing (Stacked Bar Chart: Eat on Top)")
         ax.legend([bar_eat, bar_not_eat], ["Eat", "Not Eat"], loc="upper right")
@@ -317,7 +320,7 @@ def main():
     # ---------------------
     with tab6:
         st.subheader("Meal Action Step Plots by Meal Timing")
-        behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/imealbehavior_datai.csv'
+        behavior_csv = 'https://raw.githubusercontent.com/ryotamatsuki/aidai/refs/heads/main/mealbehavior_datai.csv'
         df_behavior = pd.read_csv(behavior_csv)
         df_behavior['timestamp'] = pd.to_datetime(df_behavior['timestamp'], format="%Y-%m-%d_%H-%M-%S.%f")
         df_behavior['state'] = df_behavior['meal_action'].apply(lambda x: 1 if x.strip().lower() == "eat" else 0)
